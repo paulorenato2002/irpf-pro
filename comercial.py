@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from gov_password import gov_password_input, render_gov_password_reveal
+
 
 def _get_client_documents_df(documents_df, client_id: int, pd):
     if "client_id" not in documents_df.columns:
@@ -394,6 +396,13 @@ def render_registry_page(
 
     st.divider()
     st.markdown("**Cadastro do cliente**")
+    if selected_row is not None:
+        render_gov_password_reveal(
+            supabase_client,
+            client_id,
+            bool(selected_row.get("Senha Gov Cadastrada", False)),
+            key=f"commercial_{client_id}",
+        )
     with st.form("client_maintenance_form"):
         col_1, col_2 = st.columns(2)
         with col_1:
@@ -425,10 +434,7 @@ def render_registry_page(
             )
             cpf = st.text_input("CPF", value=selected_row.get("CPF", "") if selected_row is not None else "")
             phone = st.text_input("Telefone", value=selected_row.get("Telefone", "") if selected_row is not None else "")
-            gov_password = st.text_input(
-                "Senha Gov",
-                value=selected_row.get("Senha Gov", "") if selected_row is not None else "",
-            )
+            gov_password = gov_password_input("Senha Gov (em branco mantém a atual)", client_id or 0)
             has_digital_certificate = st.checkbox(
                 "Tem certificado digital",
                 value=bool(selected_row.get("Tem Certificado Digital", False)) if selected_row is not None else False,

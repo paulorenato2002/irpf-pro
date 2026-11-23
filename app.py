@@ -16,6 +16,8 @@ from preenchimento import render_preparation_editor as render_preparation_sector
 from revisao import render_review_page as render_review_sector
 from supabase import Client, create_client
 
+from gov_password import set_gov_password
+
 
 CLIENT_COLUMNS = [
     "CPF",
@@ -863,11 +865,21 @@ def load_supabase_bundle(client: Client) -> dict[str, pd.DataFrame]:
             "documents",
             "id, client_id, document_type, institution, status, last_update, control_key",
         )
-    private_rows = fetch_all_rows(
-        client,
-        "client_private",
-        "client_id, cpf, phone, gov_password, has_digital_certificate, power_of_attorney",
-    )
+    try:
+        private_rows = fetch_all_rows(
+            client,
+            "client_private",
+            "client_id, cpf, phone, has_gov_password, has_digital_certificate, power_of_attorney",
+        )
+    except Exception as exc:
+        # app novo publicado antes de supabase_gov_password.sql: segue sem o indicador da senha
+        if "has_gov_password" not in str(exc):
+            raise
+        private_rows = fetch_all_rows(
+            client,
+            "client_private",
+            "client_id, cpf, phone, has_digital_certificate, power_of_attorney",
+        )
     team_rows = fetch_all_rows(
         client,
         "team_members",
@@ -956,7 +968,7 @@ def load_supabase_bundle(client: Client) -> dict[str, pd.DataFrame]:
     private_df = pd.DataFrame(private_rows).fillna("")
     if private_df.empty:
         private_df = pd.DataFrame(
-            columns=["client_id", "CPF", "Telefone", "Senha Gov", "Tem Certificado Digital", "Cadastro de Procuração"]
+            columns=["client_id", "CPF", "Telefone", "Senha Gov", "Senha Gov Cadastrada", "Tem Certificado Digital", "Cadastro de Procuração"]
         )
     else:
         private_df = pd.DataFrame(
@@ -964,7 +976,12 @@ def load_supabase_bundle(client: Client) -> dict[str, pd.DataFrame]:
                 "client_id": private_df["client_id"].astype(int),
                 "CPF": private_df["cpf"].map(normalize_text),
                 "Telefone": private_df["phone"].map(normalize_text),
-                "Senha Gov": private_df["gov_password"].map(normalize_text),
+                "Senha Gov": "",
+                "Senha Gov Cadastrada": (
+                    private_df["has_gov_password"].fillna(False).astype(bool)
+                    if "has_gov_password" in private_df.columns
+                    else False
+                ),
                 "Tem Certificado Digital": private_df["has_digital_certificate"].fillna(False).astype(bool),
                 "Cadastro de Procuração": private_df["power_of_attorney"].map(normalize_text),
             }
@@ -1157,6 +1174,8 @@ def attach_private_data(people_df: pd.DataFrame, private_df: pd.DataFrame) -> pd
             | merged["Tem Certificado Digital"].fillna(False).astype(bool)
         )
         merged = merged.drop(columns=["Tem Certificado Digital_private"])
+    if "Senha Gov Cadastrada" in merged.columns:
+        merged["Senha Gov Cadastrada"] = merged["Senha Gov Cadastrada"].fillna(False).astype(bool)
     return merged
 
 
@@ -1589,13 +1608,13 @@ def save_client_record(client: Client, client_payload: dict[str, object], privat
             "client_id": client_id,
             "cpf": normalize_text(private_payload.get("cpf", "")),
             "phone": normalize_text(private_payload.get("phone", "")),
-            "gov_password": normalize_text(private_payload.get("gov_password", "")),
             "has_digital_certificate": bool(private_payload.get("has_digital_certificate", False)),
             "power_of_attorney": normalize_text(private_payload.get("power_of_attorney", "")),
             "updated_at": timestamp,
         },
         on_conflict="client_id",
     ).execute()
+    set_gov_password(client, client_id, normalize_text(private_payload.get("gov_password", "")))
     invalidate_data_cache()
     return client_id
 
@@ -1874,6 +1893,12 @@ def build_import_comparison(
             if source_column not in selected_client_fields:
                 continue
             new_value = normalize_text(row.get(source_column, ""))
+            if source_column == "Senha Gov":
+                # a senha nunca aparece na tela: só informa o que a importação fará
+                if new_value:
+                    already = bool(current_row.get("Senha Gov Cadastrada", False))
+                    differences.append("Senha Gov: " + ("substituir pela da planilha" if already else "cadastrar"))
+                continue
             old_value = normalize_text(current_row.get(current_column, ""))
             if new_value and new_value != old_value:
                 differences.append(f"{current_column}: {old_value or '-'} -> {new_value}")
@@ -2234,12 +2259,12 @@ def save_post_filing_update(
     private_payload = {"client_id": client_id, "updated_at": timestamp}
     if cpf is not None:
         private_payload["cpf"] = normalize_cpf(cpf)
-    if gov_password is not None:
-        private_payload["gov_password"] = normalize_text(gov_password)
     if power_of_attorney is not None:
         private_payload["power_of_attorney"] = normalize_text(power_of_attorney)
     if len(private_payload) > 2:
         client.table("client_private").upsert(private_payload, on_conflict="client_id").execute()
+    if gov_password is not None:
+        set_gov_password(client, client_id, normalize_text(gov_password))
     client.table("declaration_checkpoints").upsert(
         {
             "client_id": client_id,
@@ -2364,8 +2389,11 @@ def save_stage_checkpoint_if_missing(client: Client, client_id: int, tax_status:
     ).execute()
 
 
+SENSITIVE_EXPORT_COLUMNS = ("Senha Gov",)
+
+
 def prepare_export_sheet(df: pd.DataFrame) -> pd.DataFrame:
-    export_df = df.copy()
+    export_df = df.drop(columns=[column for column in SENSITIVE_EXPORT_COLUMNS if column in df.columns])
 
     def format_export_value(value: object) -> object:
         if value is None:

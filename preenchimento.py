@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from gov_password import render_gov_password_reveal
+
 
 def _normalized(value: object, normalize_text) -> str:
     return normalize_text(value).upper()
@@ -385,7 +387,7 @@ def _render_assume_responsibility_button(
             st.error(f"Não foi possível assumir a declaração: {exc}")
 
 
-def _render_support_panels(st, selected_row) -> None:
+def _render_support_panels(st, selected_row, supabase_client, key_prefix: str) -> None:
     info_col_1, info_col_2 = st.columns(2)
     with info_col_1:
         with st.container(border=True):
@@ -401,7 +403,12 @@ def _render_support_panels(st, selected_row) -> None:
             st.write(f"Nível de complexidade: {selected_row['Nivel de Complexidade']}")
             st.write(f"CPF: {selected_row.get('CPF', '') or 'Não informado'}")
             st.write(f"Telefone: {selected_row.get('Telefone', '') or 'Não informado'}")
-            st.write(f"Senha Gov: {selected_row.get('Senha Gov', '') or 'Não informada'}")
+            render_gov_password_reveal(
+                supabase_client,
+                int(selected_row["client_id"]),
+                bool(selected_row.get("Senha Gov Cadastrada", False)),
+                key=f"prep_{key_prefix}_{int(selected_row['client_id'])}",
+            )
             st.write(
                 "Certificado digital: "
                 + ("Sim" if bool(selected_row.get("Tem Certificado Digital", False)) else "Não")
@@ -895,7 +902,7 @@ def render_preparation_editor(
             selected_row = available_df[available_df["NOME"] == selected_name].iloc[0]
 
             _render_client_header(st, selected_row)
-            _render_support_panels(st, selected_row)
+            _render_support_panels(st, selected_row, supabase_client, "avail")
             _render_assume_responsibility_button(
                 ctx,
                 supabase_client,
@@ -937,7 +944,7 @@ def render_preparation_editor(
         selected_row = my_df[my_df["NOME"] == selected_name].iloc[0]
 
         _render_client_header(st, selected_row)
-        _render_support_panels(st, selected_row)
+        _render_support_panels(st, selected_row, supabase_client, "my")
         _render_preparation_form(
             ctx,
             supabase_client,
@@ -965,7 +972,7 @@ def render_preparation_editor(
         )
         selected_row = filtered_general_df[filtered_general_df["NOME"] == selected_name].iloc[0]
         _render_client_header(st, selected_row)
-        _render_support_panels(st, selected_row)
+        _render_support_panels(st, selected_row, supabase_client, "general")
         _render_general_client_admin(
             ctx,
             supabase_client,

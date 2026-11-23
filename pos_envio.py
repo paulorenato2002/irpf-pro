@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from gov_password import gov_password_input, render_gov_password_reveal
+
 
 POST_FILING_NOTE_STEP_KEY = "pos_envio_observacoes"
 DISPLAY_COLUMNS = [
@@ -193,8 +195,13 @@ def _render_editor(ctx: dict[str, Any], source_df, supabase_client, user_profile
     info_cols[0].write(normalize_text(selected_row.get("CPF", "")) or "Não informado")
     info_cols[0].caption("CPF Receita")
     info_cols[0].code(cpf_digits or "Não informado", language=None)
-    info_cols[1].caption("Senha Gov.br")
-    info_cols[1].code(normalize_text(selected_row.get("Senha Gov", "")) or "Não informado", language=None)
+    with info_cols[1]:
+        render_gov_password_reveal(
+            supabase_client,
+            selected_client_id,
+            bool(selected_row.get("Senha Gov Cadastrada", False)),
+            key=f"pos_{selected_client_id}",
+        )
     info_cols[2].caption("Nome")
     info_cols[2].write(normalize_text(selected_row.get("NOME", "")) or "Não informado")
     info_cols[3].caption("Status preenchimento")
@@ -212,10 +219,7 @@ def _render_editor(ctx: dict[str, Any], source_df, supabase_client, user_profile
         with col_a:
             full_name = st.text_input("NOME", value=normalize_text(selected_row.get("NOME", "")))
             cpf = st.text_input("CPF", value=normalize_cpf(selected_row.get("CPF", "")))
-            gov_password = st.text_input(
-                "Senha Gov.br",
-                value=normalize_text(selected_row.get("Senha Gov", "")),
-            )
+            gov_password = gov_password_input("Senha Gov.br (em branco mantém a atual)", selected_client_id)
             tax_status = st.selectbox(
                 "Status Preenchimento",
                 options=declaration_status_options,

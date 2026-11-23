@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from gov_password import gov_password_input, render_gov_password_reveal
+
 
 def _metric_delta(history_df, snapshot_df, column: str) -> int | None:
     if history_df.empty:
@@ -528,6 +530,12 @@ def _render_adjustment_management(
                 st.error(f"Não foi possível atualizar responsável/status: {exc}")
 
     with st.expander("Editar cadastro do cliente"):
+        render_gov_password_reveal(
+            supabase_client,
+            client_id,
+            bool(selected_row.get("Senha Gov Cadastrada", False)),
+            key=f"review_{client_id}",
+        )
         with st.form(f"adjust_client_form_{client_id}"):
             col_1, col_2 = st.columns(2)
             with col_1:
@@ -538,7 +546,7 @@ def _render_adjustment_management(
             with col_2:
                 cpf = st.text_input("CPF", value=selected_row.get("CPF", ""))
                 phone = st.text_input("Telefone", value=selected_row.get("Telefone", ""))
-                gov_password = st.text_input("Senha Gov", value=selected_row.get("Senha Gov", ""))
+                gov_password = gov_password_input("Senha Gov (em branco mantém a atual)", client_id)
                 has_digital_certificate = st.checkbox(
                     "Tem certificado digital",
                     value=bool(selected_row.get("Tem Certificado Digital", False)),
