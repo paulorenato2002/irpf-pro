@@ -27,6 +27,9 @@ add column if not exists can_manage_records boolean not null default false;
 alter table public.team_members
 add column if not exists permission_level text not null default 'full';
 
+alter table public.team_members
+add column if not exists auth_user_id uuid unique references auth.users(id) on delete set null;
+
 create unique index if not exists idx_team_members_email_unique
 on public.team_members(email)
 where email is not null and email <> '';
